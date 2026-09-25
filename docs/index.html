@@ -3,18 +3,112 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Closter Recorder</title>
 <style>
-body { font-family: sans-serif; margin: 16px; max-width: 900px; }
+body { font-family: sans-serif; margin: 16px; }
 table { border-collapse: collapse; margin-bottom: 8px; }
 th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; }
 th { background: #eee; }
 .bad { color: #b00; font-weight: bold; }
+
+/* Two columns on a wide screen, stacked on a phone. */
+.layout { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.left { flex: 1 1 300px; max-width: 760px; min-width: 0; }
+.right { flex: 1 1 300px; min-width: 0; overflow-x: auto; }
+
+/* Timeline */
+.timeline { position: relative; font-size: 12px; }
+.colhead { position: absolute; top: 0; height: 30px; text-align: center; font-weight: bold; line-height: 1.1; }
+.colhead small { font-weight: normal; color: #666; }
+.hourline { position: absolute; left: 0; right: 0; border-top: 1px solid #e4e4e4; }
+.hourline span { position: absolute; top: -8px; left: 0; color: #888; font-size: 11px; background: #fff; }
+.show { position: absolute; box-sizing: border-box; border: 1px solid #333; background: #fff; overflow: hidden; }
+.show .ads { position: absolute; top: 0; left: 0; right: 0;
+             background: repeating-linear-gradient(45deg, #d6d6d6 0 3px, #fff 3px 6px); border-bottom: 1px solid #999; }
+.show .fill { position: absolute; left: 0; bottom: 0; background: #8fa8e0; }
+.show .label { position: relative; padding: 16px 3px 2px 3px; line-height: 1.25; font-size: 11px; }
+.show .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.show .count { font-size: 14px; font-weight: bold; }
+.show.empty { border: 1px dashed #888; }
+.show.soldout { border: 3px solid #1a2f6b; }
+.show.soldout .fill { background: #5b7bd0; }
+.show.soldout .count { color: #1a2f6b; letter-spacing: 1px; }
+.show.done { opacity: 0.45; }
+.gap { position: absolute; text-align: center; color: #666; font-size: 10px; }
+.gap.tight { color: #b00; font-weight: bold; }
+.nowline { position: absolute; left: 40px; right: 0; border-top: 2px solid #000; z-index: 5; }
+.nowline span { position: absolute; top: -9px; left: -40px; background: #000; color: #fff; font-size: 11px; padding: 0 3px; }
+.legend { font-size: 12px; color: #444; margin: 4px 0 10px 0; }
+.swatch { display: inline-block; width: 28px; height: 12px; border: 1px solid #333; vertical-align: middle; }
 </style></head><body>
 <h1>Landmark Closter Plaza</h1>
+<div class="layout">
+<div class="left">
+<h2>Today by screen (Fri Sep 25)</h2>
+<div class="legend">
+<span class="swatch" style="background: repeating-linear-gradient(45deg, #d6d6d6 0 3px, #fff 3px 6px);"></span> 10 min ads &nbsp;
+<span class="swatch" style="background: linear-gradient(90deg, #8fa8e0 40%, #fff 40%);"></span> shaded width = seats sold &nbsp;
+<span class="swatch" style="border: 1px dashed #888;"></span> nothing sold &nbsp;
+<span class="swatch" style="border: 3px solid #1a2f6b; background: #5b7bd0;"></span> sold out<br>
+Box height = ads + runtime. Red gap = under 15 minutes to turn the room over.
+</div>
+<div class="timeline" style="height: 1114px;">
+<div class="colhead" style="left: calc(44px + (100% - 44px) * 0 / 5); width: calc((100% - 44px) / 5 - 4px);">#1<br><small>102 seats</small></div>
+<div class="colhead" style="left: calc(44px + (100% - 44px) * 1 / 5); width: calc((100% - 44px) / 5 - 4px);">#2<br><small>53 seats</small></div>
+<div class="colhead" style="left: calc(44px + (100% - 44px) * 2 / 5); width: calc((100% - 44px) / 5 - 4px);">#3<br><small>53 seats</small></div>
+<div class="colhead" style="left: calc(44px + (100% - 44px) * 3 / 5); width: calc((100% - 44px) / 5 - 4px);">#4<br><small>20 seats</small></div>
+<div class="colhead" style="left: calc(44px + (100% - 44px) * 4 / 5); width: calc((100% - 44px) / 5 - 4px);">#5<br><small>21 seats</small></div>
+<div class="hourline" style="top: 34px;"><span>1 PM</span></div>
+<div class="hourline" style="top: 124px;"><span>2 PM</span></div>
+<div class="hourline" style="top: 214px;"><span>3 PM</span></div>
+<div class="hourline" style="top: 304px;"><span>4 PM</span></div>
+<div class="hourline" style="top: 394px;"><span>5 PM</span></div>
+<div class="hourline" style="top: 484px;"><span>6 PM</span></div>
+<div class="hourline" style="top: 574px;"><span>7 PM</span></div>
+<div class="hourline" style="top: 664px;"><span>8 PM</span></div>
+<div class="hourline" style="top: 754px;"><span>9 PM</span></div>
+<div class="hourline" style="top: 844px;"><span>10 PM</span></div>
+<div class="hourline" style="top: 934px;"><span>11 PM</span></div>
+<div class="hourline" style="top: 1024px;"><span>12 AM</span></div>
+<div class="hourline" style="top: 1114px;"><span>1 AM</span></div>
+<div class="show" style="left: calc(44px + (100% - 44px) * 0 / 5); width: calc((100% - 44px) / 5 - 4px); top: 124px; height: 178px;" title="Forgotten Island, 2:00 PM, 4% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 4%;"></div><div class="label"><b>2:00 PM</b><div class="title">Forgotten Island</div><span class="count">4/102</span><br><small>ends 3:59</small></div></div>
+<div class="gap" style="left: calc(44px + (100% - 44px) * 0 / 5); width: calc((100% - 44px) / 5 - 4px); top: 302px;">31 min gap</div>
+<div class="show" style="left: calc(44px + (100% - 44px) * 0 / 5); width: calc((100% - 44px) / 5 - 4px); top: 349px; height: 178px;" title="Forgotten Island, 4:30 PM, 8% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 8%;"></div><div class="label"><b>4:30 PM</b><div class="title">Forgotten Island</div><span class="count">8/102</span><br><small>ends 6:29</small></div></div>
+<div class="gap" style="left: calc(44px + (100% - 44px) * 0 / 5); width: calc((100% - 44px) / 5 - 4px); top: 527px;">31 min gap</div>
+<div class="show" style="left: calc(44px + (100% - 44px) * 0 / 5); width: calc((100% - 44px) / 5 - 4px); top: 574px; height: 178px;" title="Forgotten Island, 7:00 PM, 15% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 15%;"></div><div class="label"><b>7:00 PM</b><div class="title">Forgotten Island</div><span class="count">15/102</span><br><small>ends 8:59</small></div></div>
+<div class="gap" style="left: calc(44px + (100% - 44px) * 0 / 5); width: calc((100% - 44px) / 5 - 4px); top: 752px;">36 min gap</div>
+<div class="show empty" style="left: calc(44px + (100% - 44px) * 0 / 5); width: calc((100% - 44px) / 5 - 4px); top: 806px; height: 292px;" title="Avengers Endgame: Encore, 9:35 PM, 0% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 0%;"></div><div class="label"><b>9:35 PM</b><div class="title">Avengers Endgame: Encore</div><span class="count">0/102</span><br><small>ends 12:50</small></div></div>
+<div class="show" style="left: calc(44px + (100% - 44px) * 1 / 5); width: calc((100% - 44px) / 5 - 4px); top: 259px; height: 178px;" title="Forgotten Island, 3:30 PM, 4% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 4%;"></div><div class="label"><b>3:30 PM</b><div class="title">Forgotten Island</div><span class="count">2/53</span><br><small>ends 5:29</small></div></div>
+<div class="gap" style="left: calc(44px + (100% - 44px) * 1 / 5); width: calc((100% - 44px) / 5 - 4px); top: 437px;">106 min gap</div>
+<div class="show" style="left: calc(44px + (100% - 44px) * 1 / 5); width: calc((100% - 44px) / 5 - 4px); top: 596px; height: 292px;" title="Avengers Endgame: Encore, 7:15 PM, 12% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 12%;"></div><div class="label"><b>7:15 PM</b><div class="title">Avengers Endgame: Encore</div><span class="count">6/53</span><br><small>ends 10:30</small></div></div>
+<div class="gap" style="left: calc(44px + (100% - 44px) * 1 / 5); width: calc((100% - 44px) / 5 - 4px); top: 889px;">30 min gap</div>
+<div class="show" style="left: calc(44px + (100% - 44px) * 1 / 5); width: calc((100% - 44px) / 5 - 4px); top: 934px; height: 160px;" title="Resident Evil, 11:00 PM, 4% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 4%;"></div><div class="label"><b>11:00 PM</b><div class="title">Resident Evil</div><span class="count">2/53</span><br><small>ends 12:47</small></div></div>
+<div class="show empty" style="left: calc(44px + (100% - 44px) * 2 / 5); width: calc((100% - 44px) / 5 - 4px); top: 139px; height: 135px;" title="Shaun the Sheep: The Beast of Mossy Bottom, 2:10 PM, 0% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 0%;"></div><div class="label"><b>2:10 PM</b><div class="title">Shaun the Sheep: The Beast of Mossy Bottom</div><span class="count">0/53</span><br><small>ends 3:40</small></div></div>
+<div class="gap" style="left: calc(44px + (100% - 44px) * 2 / 5); width: calc((100% - 44px) / 5 - 4px); top: 274px;">45 min gap</div>
+<div class="show" style="left: calc(44px + (100% - 44px) * 2 / 5); width: calc((100% - 44px) / 5 - 4px); top: 341px; height: 292px;" title="Avengers Endgame: Encore, 4:25 PM, 4% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 4%;"></div><div class="label"><b>4:25 PM</b><div class="title">Avengers Endgame: Encore</div><span class="count">2/53</span><br><small>ends 7:40</small></div></div>
+<div class="gap" style="left: calc(44px + (100% - 44px) * 2 / 5); width: calc((100% - 44px) / 5 - 4px); top: 634px;">35 min gap</div>
+<div class="show" style="left: calc(44px + (100% - 44px) * 2 / 5); width: calc((100% - 44px) / 5 - 4px); top: 686px; height: 292px;" title="Avengers Endgame: Encore, 8:15 PM, 6% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 6%;"></div><div class="label"><b>8:15 PM</b><div class="title">Avengers Endgame: Encore</div><span class="count">3/53</span><br><small>ends 11:30</small></div></div>
+<div class="show empty" style="left: calc(44px + (100% - 44px) * 3 / 5); width: calc((100% - 44px) / 5 - 4px); top: 101px; height: 210px;" title="Practical Magic 2, 1:45 PM, 0% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 0%;"></div><div class="label"><b>1:45 PM</b><div class="title">Practical Magic 2</div><span class="count">0/20</span><br><small>ends 4:05</small></div></div>
+<div class="gap" style="left: calc(44px + (100% - 44px) * 3 / 5); width: calc((100% - 44px) / 5 - 4px); top: 311px;">30 min gap</div>
+<div class="show" style="left: calc(44px + (100% - 44px) * 3 / 5); width: calc((100% - 44px) / 5 - 4px); top: 356px; height: 210px;" title="Practical Magic 2, 4:35 PM, 11% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 11%;"></div><div class="label"><b>4:35 PM</b><div class="title">Practical Magic 2</div><span class="count">2/20</span><br><small>ends 6:55</small></div></div>
+<div class="gap" style="left: calc(44px + (100% - 44px) * 3 / 5); width: calc((100% - 44px) / 5 - 4px); top: 566px;">35 min gap</div>
+<div class="show" style="left: calc(44px + (100% - 44px) * 3 / 5); width: calc((100% - 44px) / 5 - 4px); top: 619px; height: 210px;" title="Practical Magic 2, 7:30 PM, 33% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 33%;"></div><div class="label"><b>7:30 PM</b><div class="title">Practical Magic 2</div><span class="count">7/20</span><br><small>ends 9:50</small></div></div>
+<div class="gap" style="left: calc(44px + (100% - 44px) * 3 / 5); width: calc((100% - 44px) / 5 - 4px); top: 829px;">35 min gap</div>
+<div class="show empty" style="left: calc(44px + (100% - 44px) * 3 / 5); width: calc((100% - 44px) / 5 - 4px); top: 881px; height: 210px;" title="Practical Magic 2, 10:25 PM, 0% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 0%;"></div><div class="label"><b>10:25 PM</b><div class="title">Practical Magic 2</div><span class="count">0/20</span><br><small>ends 12:45</small></div></div>
+<div class="show empty" style="left: calc(44px + (100% - 44px) * 4 / 5); width: calc((100% - 44px) / 5 - 4px); top: 176px; height: 160px;" title="Resident Evil, 2:35 PM, 0% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 0%;"></div><div class="label"><b>2:35 PM</b><div class="title">Resident Evil</div><span class="count">0/21</span><br><small>ends 4:22</small></div></div>
+<div class="gap" style="left: calc(44px + (100% - 44px) * 4 / 5); width: calc((100% - 44px) / 5 - 4px); top: 337px;">28 min gap</div>
+<div class="show empty" style="left: calc(44px + (100% - 44px) * 4 / 5); width: calc((100% - 44px) / 5 - 4px); top: 379px; height: 160px;" title="Resident Evil, 4:50 PM, 0% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 0%;"></div><div class="label"><b>4:50 PM</b><div class="title">Resident Evil</div><span class="count">0/21</span><br><small>ends 6:37</small></div></div>
+<div class="gap" style="left: calc(44px + (100% - 44px) * 4 / 5); width: calc((100% - 44px) / 5 - 4px); top: 539px;">28 min gap</div>
+<div class="show empty" style="left: calc(44px + (100% - 44px) * 4 / 5); width: calc((100% - 44px) / 5 - 4px); top: 581px; height: 160px;" title="Resident Evil, 7:05 PM, 0% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 0%;"></div><div class="label"><b>7:05 PM</b><div class="title">Resident Evil</div><span class="count">0/21</span><br><small>ends 8:52</small></div></div>
+<div class="gap" style="left: calc(44px + (100% - 44px) * 4 / 5); width: calc((100% - 44px) / 5 - 4px); top: 742px;">23 min gap</div>
+<div class="show empty" style="left: calc(44px + (100% - 44px) * 4 / 5); width: calc((100% - 44px) / 5 - 4px); top: 776px; height: 178px;" title="Forgotten Island, 9:15 PM, 0% sold"><div class="ads" style="height: 15px;"></div><div class="fill" style="top: 15px; width: 0%;"></div><div class="label"><b>9:15 PM</b><div class="title">Forgotten Island</div><span class="count">0/21</span><br><small>ends 11:14</small></div></div>
+<div class="nowline" style="top: 259px;"><span>3:30</span></div>
+</div>
+</div>
+<div class="right">
 <h2>Recorder health</h2>
-<p>Page built Fri Sep 25, 03:18 PM EDT.</p>
-<p>Last 24 hours: 7 successful runs, 0 failed.</p>
+<p>Page built Fri Sep 25, 03:30 PM EDT.</p>
+<p>Last 24 hours: 8 successful runs, 0 failed.</p>
 <p class='bad'>Gaps over 45 minutes: Thu 06:03 PM to Thu 08:26 PM; Thu 08:26 PM to Fri 01:16 AM; Fri 01:16 AM to Fri 06:14 AM; Fri 06:14 AM to Fri 11:18 AM; Fri 11:18 AM to Fri 02:29 PM; Fri 02:29 PM to Fri 03:18 PM</p>
-<h2>Today (Fri Sep 25): about 47 tickets sold across all shows</h2>
+<h2>Today: about 51 tickets sold across all shows</h2>
 <table><tr>
 <th>Time</th>
 <th>Screen</th>
@@ -33,7 +127,7 @@ th { background: #eee; }
 <tr><td>4:50 PM</td><td>5</td><td>Resident Evil</td><td>0</td><td>0</td></tr>
 <tr><td>7:00 PM</td><td>1</td><td>Forgotten Island</td><td>15</td><td>15</td></tr>
 <tr><td>7:05 PM</td><td>5</td><td>Resident Evil</td><td>0</td><td>0</td></tr>
-<tr><td>7:15 PM</td><td>2</td><td>Avengers Endgame: Encore</td><td>4</td><td>2</td></tr>
+<tr><td>7:15 PM</td><td>2</td><td>Avengers Endgame: Encore</td><td>12</td><td>6</td></tr>
 <tr><td>7:30 PM</td><td>4</td><td>Practical Magic 2</td><td>33</td><td>7</td></tr>
 <tr><td>8:15 PM</td><td>3</td><td>Avengers Endgame: Encore</td><td>6</td><td>3</td></tr>
 <tr><td>9:15 PM</td><td>5</td><td>Forgotten Island</td><td>0</td><td>0</td></tr>
@@ -59,7 +153,6 @@ th { background: #eee; }
 <tr><td>Sun Sep 27</td><td>11:45 AM</td><td>3</td><td>Shaun the Sheep: The Beast of Mossy Bottom</td><td>8</td><td>4</td></tr>
 <tr><td>Sat Sep 26</td><td>2:00 PM</td><td>1</td><td>Forgotten Island</td><td>7</td><td>7</td></tr>
 <tr><td>Sat Sep 26</td><td>4:30 PM</td><td>1</td><td>Forgotten Island</td><td>6</td><td>6</td></tr>
-<tr><td>Sun Sep 27</td><td>11:30 AM</td><td>1</td><td>Forgotten Island</td><td>6</td><td>6</td></tr>
 <tr><td>Sun Sep 27</td><td>4:50 PM</td><td>5</td><td>Resident Evil</td><td>5</td><td>1</td></tr>
 <tr><td>Sat Sep 26</td><td>11:30 AM</td><td>1</td><td>Forgotten Island</td><td>3</td><td>3</td></tr>
 </table>
@@ -81,4 +174,6 @@ th { background: #eee; }
 <tr><td>Thu Dec 17</td><td>Avengers: Doomsday</td></tr>
 </table>
 <p>~People = % sold x seats in that screen. Data: landmarktheatres.com, recorded every ~15 minutes.</p>
+</div>
+</div>
 </body></html>
