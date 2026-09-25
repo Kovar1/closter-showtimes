@@ -288,14 +288,138 @@ def table(headers, rows):
     return "\n".join(out)
 
 
+AD_MINUTES = 10           # trailers/ads before every feature
+PIXELS_PER_MINUTE = 1.5
+DEFAULT_RUNTIME = 120     # used when a movie's runtime is unknown
+HEADER_PX = 34            # room for screen names above the chart
+
+
+def build_timeline(rows, titles, runtimes, seats, now_local):
+    """
+    One column per screen. Each show is a box: top = start time,
+    height = ads + runtime. The shaded part of the box grows left to right
+    with the percent of seats sold.
+    """
+    if not rows:
+        return "<p>No shows today.</p>"
+
+    screens = [name for name in seats]
+    for r in rows:
+        if r["screen_name"] not in screens:
+            screens.append(r["screen_name"])
+
+    # Work out each show's end time first.
+    shows = []
+    for r in rows:
+        runtime = runtimes.get(r["movie_id"])
+        guessed = runtime is None
+        if guessed:
+            runtime = DEFAULT_RUNTIME
+        start = datetime.datetime.strptime(r["starts_at"], "%Y-%m-%d %H:%M")
+        end = start + datetime.timedelta(minutes=AD_MINUTES + runtime)
+        shows.append({"row": r, "start": start, "end": end, "runtime": runtime, "guessed": guessed})
+
+    # The chart covers whole hours from the first start to the last end.
+    first = min(s["start"] for s in shows).replace(minute=0)
+    last = max(s["end"] for s in shows)
+    if last.minute:
+        last = last.replace(minute=0) + datetime.timedelta(hours=1)
+    total_minutes = (last - first).total_seconds() / 60
+    height = total_minutes * PIXELS_PER_MINUTE
+    column_count = len(screens)
+
+    def column_style(index):
+        return ("left: calc(44px + (100%% - 44px) * %d / %d); width: calc((100%% - 44px) / %d - 4px);"
+                % (index, column_count, column_count))
+
+    out = ['<div class="timeline" style="height: %dpx;">' % (height + HEADER_PX)]
+
+    # Screen names across the top.
+    for i, name in enumerate(screens):
+        label = html.escape(name.replace("Screen ", "#"))
+        if name in seats:
+            label += "<br><small>%d seats</small>" % seats[name]
+        out.append('<div class="colhead" style="%s">%s</div>' % (column_style(i), label))
+
+    # Hour lines.
+    hour = first
+    while hour <= last:
+        top = HEADER_PX + (hour - first).total_seconds() / 60 * PIXELS_PER_MINUTE
+        out.append('<div class="hourline" style="top: %dpx;"><span>%s</span></div>'
+                   % (top, hour.strftime("%I %p").lstrip("0")))
+        hour += datetime.timedelta(hours=1)
+
+    # Show boxes, plus the gap to the next show on the same screen.
+    for i, name in enumerate(screens):
+        column_shows = sorted([s for s in shows if s["row"]["screen_name"] == name], key=lambda s: s["start"])
+        for n, s in enumerate(column_shows):
+            r = s["row"]
+            top = HEADER_PX + (s["start"] - first).total_seconds() / 60 * PIXELS_PER_MINUTE
+            box_height = (s["end"] - s["start"]).total_seconds() / 60 * PIXELS_PER_MINUTE
+            pct = int(r["last_pct"]) if r["last_pct"] not in ("", None) else 0
+            pct = max(0, min(pct, 100))
+            capacity = seats.get(name)
+            if capacity:
+                count = "%d/%d" % (round(pct * capacity / 100), capacity)
+            else:
+                count = "%d%%" % pct
+
+            classes = ["show"]
+            if pct == 0:
+                classes.append("empty")
+            if pct >= 100:
+                classes.append("soldout")
+            if s["end"] <= now_local.replace(tzinfo=None):
+                classes.append("done")
+
+            status = "SOLD OUT" if pct >= 100 else count
+            ends = s["end"].strftime("%I:%M").lstrip("0")
+            if s["guessed"]:
+                ends += "?"
+            out.append(
+                '<div class="%s" style="%s top: %dpx; height: %dpx;" title="%s">'
+                '<div class="ads" style="height: %dpx;"></div>'
+                '<div class="fill" style="top: %dpx; width: %d%%;"></div>'
+                '<div class="label"><b>%s</b><div class="title">%s</div><span class="count">%s</span><br><small>ends %s</small></div>'
+                '</div>'
+                % (" ".join(classes), column_style(i), top, box_height,
+                   html.escape("%s, %s, %d%% sold" % (titles.get(r["movie_id"], ""), nice_time(r["starts_at"]), pct)),
+                   AD_MINUTES * PIXELS_PER_MINUTE,
+                   AD_MINUTES * PIXELS_PER_MINUTE, pct,
+                   nice_time(r["starts_at"]), html.escape(titles.get(r["movie_id"], r["movie_id"])),
+                   status, ends))
+
+            # Gap until the next show in this screen (cleaning/changeover time).
+            if n + 1 < len(column_shows):
+                following = column_shows[n + 1]
+                gap = (following["start"] - s["end"]).total_seconds() / 60
+                gap_top = top + box_height
+                gap_class = "gap tight" if gap < 15 else "gap"
+                out.append('<div class="%s" style="%s top: %dpx;">%s</div>'
+                           % (gap_class, column_style(i), gap_top,
+                              ("%d min gap" % gap) if gap >= 0 else ("overlaps %d min" % -gap)))
+
+    # "Now" line, if now is inside the chart.
+    now_naive = now_local.replace(tzinfo=None, second=0, microsecond=0)
+    if first <= now_naive <= last:
+        top = HEADER_PX + (now_naive - first).total_seconds() / 60 * PIXELS_PER_MINUTE
+        out.append('<div class="nowline" style="top: %dpx;"><span>%s</span></div>'
+                   % (top, now_naive.strftime("%I:%M").lstrip("0")))
+
+    out.append("</div>")
+    return "\n".join(out)
+
+
 def build_page(now_utc, tz):
     now_local = now_utc.astimezone(tz)
     today = now_local.strftime("%Y-%m-%d")
     week_end = (now_local + datetime.timedelta(days=7)).strftime("%Y-%m-%d")
 
     showtimes = [r for r in read_csv(os.path.join(DATA_DIR, "showtimes.csv")) if not r["removed_utc"]]
-    titles = {r["movie_id"]: r["title"] for r in read_csv(os.path.join(DATA_DIR, "movies.csv"))}
-    seats = {r["screen_name"]: int(r["seats"]) for r in read_csv(os.path.join(DATA_DIR, "screens.csv"))}
+    movies = read_csv(os.path.join(DATA_DIR, "movies.csv"))
+    titles = {r["movie_id"]: r["title"] for r in movies}
+    runtimes = {r["movie_id"]: int(r["runtime_minutes"]) for r in movies if r["runtime_minutes"].isdigit()}
+    seats ={r["screen_name"]: int(r["seats"]) for r in read_csv(os.path.join(DATA_DIR, "screens.csv"))}
 
     def people(row):
         if row["last_pct"] == "" or row["screen_name"] not in seats:
@@ -349,30 +473,77 @@ def build_page(now_utc, tz):
     upcoming = sorted((day, titles.get(mid, mid)) for mid, day in first_day.items() if day > today)
     upcoming_table = table(["First show", "Movie"], [[nice_day(day), title] for day, title in upcoming])
 
+    timeline = build_timeline(today_rows, titles, runtimes, seats, now_local)
+
     page = """<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Closter Recorder</title>
 <style>
-body { font-family: sans-serif; margin: 16px; max-width: 900px; }
+body { font-family: sans-serif; margin: 16px; }
 table { border-collapse: collapse; margin-bottom: 8px; }
 th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; }
 th { background: #eee; }
 .bad { color: #b00; font-weight: bold; }
+
+/* Two columns on a wide screen, stacked on a phone. */
+.layout { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.left { flex: 1 1 300px; max-width: 760px; min-width: 0; }
+.right { flex: 1 1 300px; min-width: 0; overflow-x: auto; }
+
+/* Timeline */
+.timeline { position: relative; font-size: 12px; }
+.colhead { position: absolute; top: 0; height: 30px; text-align: center; font-weight: bold; line-height: 1.1; }
+.colhead small { font-weight: normal; color: #666; }
+.hourline { position: absolute; left: 0; right: 0; border-top: 1px solid #e4e4e4; }
+.hourline span { position: absolute; top: -8px; left: 0; color: #888; font-size: 11px; background: #fff; }
+.show { position: absolute; box-sizing: border-box; border: 1px solid #333; background: #fff; overflow: hidden; }
+.show .ads { position: absolute; top: 0; left: 0; right: 0;
+             background: repeating-linear-gradient(45deg, #d6d6d6 0 3px, #fff 3px 6px); border-bottom: 1px solid #999; }
+.show .fill { position: absolute; left: 0; bottom: 0; background: #8fa8e0; }
+.show .label { position: relative; padding: 16px 3px 2px 3px; line-height: 1.25; font-size: 11px; }
+.show .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.show .count { font-size: 14px; font-weight: bold; }
+.show.empty { border: 1px dashed #888; }
+.show.soldout { border: 3px solid #1a2f6b; }
+.show.soldout .fill { background: #5b7bd0; }
+.show.soldout .count { color: #1a2f6b; letter-spacing: 1px; }
+.show.done { opacity: 0.45; }
+.gap { position: absolute; text-align: center; color: #666; font-size: 10px; }
+.gap.tight { color: #b00; font-weight: bold; }
+.nowline { position: absolute; left: 40px; right: 0; border-top: 2px solid #000; z-index: 5; }
+.nowline span { position: absolute; top: -9px; left: -40px; background: #000; color: #fff; font-size: 11px; padding: 0 3px; }
+.legend { font-size: 12px; color: #444; margin: 4px 0 10px 0; }
+.swatch { display: inline-block; width: 28px; height: 12px; border: 1px solid #333; vertical-align: middle; }
 </style></head><body>
 <h1>Landmark Closter Plaza</h1>
+<div class="layout">
+<div class="left">
+<h2>Today by screen (%s)</h2>
+<div class="legend">
+<span class="swatch" style="background: repeating-linear-gradient(45deg, #d6d6d6 0 3px, #fff 3px 6px);"></span> %d min ads &nbsp;
+<span class="swatch" style="background: linear-gradient(90deg, #8fa8e0 40%%, #fff 40%%);"></span> shaded width = seats sold &nbsp;
+<span class="swatch" style="border: 1px dashed #888;"></span> nothing sold &nbsp;
+<span class="swatch" style="border: 3px solid #1a2f6b; background: #5b7bd0;"></span> sold out<br>
+Box height = ads + runtime. Red gap = under 15 minutes to turn the room over.
+</div>
+%s
+</div>
+<div class="right">
 <h2>Recorder health</h2>
 %s
-<h2>Today (%s): about %d tickets sold across all shows</h2>
+<h2>Today: about %d tickets sold across all shows</h2>
 %s
 <h2>Next 7 days: shows with sales</h2>
 %s
 <h2>Coming up: first showtimes of new movies</h2>
 %s
 <p>~People = %% sold x seats in that screen. Data: landmarktheatres.com, recorded every ~15 minutes.</p>
+</div>
+</div>
 </body></html>
-""" % ("\n".join(health), html.escape(nice_day(today)), today_total,
-       today_table, week_table, upcoming_table)
+""" % (html.escape(nice_day(today)), AD_MINUTES, timeline,
+       "\n".join(health), today_total, today_table, week_table, upcoming_table)
 
     os.makedirs(DOCS_DIR, exist_ok=True)
     with open(os.path.join(DOCS_DIR, "index.html"), "w", encoding="utf-8") as f:
