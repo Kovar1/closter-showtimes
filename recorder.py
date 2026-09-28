@@ -289,6 +289,7 @@ def table(headers, rows):
 
 
 AD_MINUTES = 10           # trailers/ads before every feature
+CREDITS_MINUTES = 8       # rough end-credits length; people start leaving here
 PIXELS_PER_MINUTE = 1.5
 DEFAULT_RUNTIME = 120     # used when a movie's runtime is unknown
 HEADER_PX = 34            # room for screen names above the chart
@@ -374,20 +375,26 @@ def build_timeline(rows, titles, runtimes, seats, now_local):
 
             status = "SOLD OUT" if pct >= 100 else count
             ends = s["end"].strftime("%I:%M").lstrip("0")
+            credits_start = s["end"] - datetime.timedelta(minutes=CREDITS_MINUTES)
+            out_time = credits_start.strftime("%I:%M").lstrip("0")
             if s["guessed"]:
                 ends += "?"
+                out_time += "?"
             out.append(
                 '<div class="%s" style="%s top: %dpx; height: %dpx;" title="%s">'
                 '<div class="ads" style="height: %dpx;"></div>'
                 '<div class="fill" style="top: %dpx; width: %d%%;"></div>'
-                '<div class="label"><b>%s</b><div class="title">%s</div><span class="count">%s</span><br><small>ends %s</small></div>'
+                '<div class="credits" style="height: %dpx;"></div>'
+                '<div class="label"><b>%s</b><div class="title">%s</div><span class="count">%s</span><br>'
+                '<small>out ~%s, ends %s</small></div>'
                 '</div>'
                 % (" ".join(classes), column_style(i), top, box_height,
                    html.escape("%s, %s, %d%% sold" % (titles.get(r["movie_id"], ""), nice_time(r["starts_at"]), pct)),
                    AD_MINUTES * PIXELS_PER_MINUTE,
                    AD_MINUTES * PIXELS_PER_MINUTE, pct,
+                   CREDITS_MINUTES * PIXELS_PER_MINUTE,
                    nice_time(r["starts_at"]), html.escape(titles.get(r["movie_id"], r["movie_id"])),
-                   status, ends))
+                   status, out_time, ends))
 
             # Gap until the next show in this screen (cleaning/changeover time).
             if n + 1 < len(column_shows):
@@ -407,6 +414,84 @@ def build_timeline(rows, titles, runtimes, seats, now_local):
                    % (top, now_naive.strftime("%I:%M").lstrip("0")))
 
     out.append("</div>")
+    return "\n".join(out)
+
+
+# Colorblind-friendly (Okabe-Ito) plus a few extras. (background, text color)
+FILM_COLORS = [("#E69F00", "#000"), ("#56B4E9", "#000"), ("#009E73", "#fff"), ("#F0E442", "#000"),
+               ("#0072B2", "#fff"), ("#D55E00", "#fff"), ("#CC79A7", "#000"), ("#000000", "#fff"),
+               ("#999999", "#000"), ("#8C564B", "#fff")]
+DISTRIBUTION_DAYS_BACK = 7
+DISTRIBUTION_DAYS_AHEAD = 7
+DISTRIBUTION_HEIGHT_PX = 200
+
+
+def build_distribution(showtimes, movies, today):
+    """
+    One stacked bar per day. Bar height = number of showtimes that day,
+    split into one colored segment per film.
+    """
+    titles = {movie["movie_id"]: movie["title"] for movie in movies}
+
+    today_date = datetime.datetime.strptime(today, "%Y-%m-%d").date()
+    days = [(today_date + datetime.timedelta(days=d)).isoformat()
+            for d in range(-DISTRIBUTION_DAYS_BACK, DISTRIBUTION_DAYS_AHEAD + 1)]
+
+    # counts[day][movie_id] = number of showtimes
+    counts = {day: {} for day in days}
+    for r in showtimes:
+        day = r["starts_at"][:10]
+        if day in counts:
+            counts[day][r["movie_id"]] = counts[day].get(r["movie_id"], 0) + 1
+
+    # Colors go only to films in this chart, in the order the recorder first saw them
+    # (their row order in movies.csv). Colors only repeat past 10 films in 15 days.
+    in_chart = set(movie_id for c in counts.values() for movie_id in c)
+    colors = {}
+    for movie in movies:
+        if movie["movie_id"] in in_chart:
+            colors[movie["movie_id"]] = FILM_COLORS[len(colors) % len(FILM_COLORS)]
+
+    biggest_day = max([sum(c.values()) for c in counts.values()] + [1])
+    px_per_show = DISTRIBUTION_HEIGHT_PX / biggest_day
+
+    # Same stacking order in every bar: films with the most showtimes overall at the bottom.
+    totals = {}
+    for c in counts.values():
+        for movie_id, n in c.items():
+            totals[movie_id] = totals.get(movie_id, 0) + n
+    order = sorted(totals, key=lambda m: (-totals[m], titles.get(m, m)))
+
+    out = ['<div class="dist" style="height: %dpx;">' % (DISTRIBUTION_HEIGHT_PX + 40)]
+    for day in days:
+        day_total = sum(counts[day].values())
+        bar_class = "bar today" if day == today else "bar"
+        out.append('<div class="daycol">')
+        out.append('<div class="daytotal">%s</div>' % (day_total if day_total else ""))
+        out.append('<div class="%s">' % bar_class)
+        for movie_id in reversed(order):  # top of the bar first
+            n = counts[day].get(movie_id, 0)
+            if not n:
+                continue
+            background, text = colors.get(movie_id, ("#ccc", "#000"))
+            height = n * px_per_show
+            number = str(n) if height >= 12 else ""
+            out.append('<div class="seg" style="height: %dpx; background: %s; color: %s;" title="%s: %d">%s</div>'
+                       % (height, background, text, html.escape(titles.get(movie_id, movie_id)), n, number))
+        out.append('</div>')
+        label = nice_day(day).split(" ")  # ['Mon', 'Sep', '28']
+        out.append('<div class="daylabel">%s<br>%s</div>' % (label[0], label[2]))
+        out.append('</div>')
+    out.append('</div>')
+
+    legend = []
+    for movie_id in order:
+        background, text = colors.get(movie_id, ("#ccc", "#000"))
+        legend.append('<span class="swatch" style="background: %s;"></span> %s (%d)'
+                      % (background, html.escape(titles.get(movie_id, movie_id)), totals[movie_id]))
+    out.append('<div class="legend">%s</div>' % "<br>".join(legend))
+    out.append('<div class="legend">Number in each color = showtimes that day. Past days only go back to when '
+               'recording began; future days only show what Landmark has posted so far.</div>')
     return "\n".join(out)
 
 
@@ -474,6 +559,7 @@ def build_page(now_utc, tz):
     upcoming_table = table(["First show", "Movie"], [[nice_day(day), title] for day, title in upcoming])
 
     timeline = build_timeline(today_rows, titles, runtimes, seats, now_local)
+    distribution = build_distribution(showtimes, movies, today)
 
     page = """<!DOCTYPE html>
 <html><head><meta charset="utf-8">
@@ -513,8 +599,19 @@ th { background: #eee; }
 .gap.tight { color: #b00; font-weight: bold; }
 .nowline { position: absolute; left: 40px; right: 0; border-top: 2px solid #000; z-index: 5; }
 .nowline span { position: absolute; top: -9px; left: -40px; background: #000; color: #fff; font-size: 11px; padding: 0 3px; }
+.show .credits { position: absolute; left: 0; right: 0; bottom: 0; border-top: 1px dashed #777;
+                 background: repeating-linear-gradient(-45deg, rgba(0,0,0,0.22) 0 3px, transparent 3px 6px); }
 .legend { font-size: 12px; color: #444; margin: 4px 0 10px 0; }
 .swatch { display: inline-block; width: 28px; height: 12px; border: 1px solid #333; vertical-align: middle; }
+
+/* Film distribution */
+.dist { display: flex; gap: 3px; align-items: flex-end; margin-top: 8px; }
+.daycol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; height: 100%%; }
+.daytotal { text-align: center; font-size: 10px; color: #444; }
+.bar { display: flex; flex-direction: column; }
+.bar.today { outline: 2px solid #000; outline-offset: 1px; }
+.seg { font-size: 10px; text-align: center; overflow: hidden; line-height: 12px; border-top: 1px solid #fff; box-sizing: border-box; }
+.daylabel { text-align: center; font-size: 10px; color: #444; margin-top: 3px; line-height: 1.1; height: 24px; }
 </style></head><body>
 <h1>Landmark Closter Plaza</h1>
 <div class="layout">
@@ -524,9 +621,12 @@ th { background: #eee; }
 <span class="swatch" style="background: repeating-linear-gradient(45deg, #d6d6d6 0 3px, #fff 3px 6px);"></span> %d min ads &nbsp;
 <span class="swatch" style="background: linear-gradient(90deg, #8fa8e0 40%%, #fff 40%%);"></span> shaded width = seats sold &nbsp;
 <span class="swatch" style="border: 1px dashed #888;"></span> nothing sold &nbsp;
-<span class="swatch" style="border: 3px solid #1a2f6b; background: #5b7bd0;"></span> sold out<br>
-Box height = ads + runtime. Red gap = under 15 minutes to turn the room over.
+<span class="swatch" style="border: 3px solid #1a2f6b; background: #5b7bd0;"></span> sold out &nbsp;
+<span class="swatch" style="background: repeating-linear-gradient(-45deg, rgba(0,0,0,0.22) 0 3px, #fff 3px 6px);"></span> ~%d min credits<br>
+Box height = ads + runtime. "Out" = credits start, when people leave. Red gap = under 15 minutes to turn the room over.
 </div>
+%s
+<h2>Film distribution: showtimes per day</h2>
 %s
 </div>
 <div class="right">
@@ -542,7 +642,7 @@ Box height = ads + runtime. Red gap = under 15 minutes to turn the room over.
 </div>
 </div>
 </body></html>
-""" % (html.escape(nice_day(today)), AD_MINUTES, timeline,
+""" % (html.escape(nice_day(today)), AD_MINUTES, CREDITS_MINUTES, timeline, distribution,
        "\n".join(health), today_total, today_table, week_table, upcoming_table)
 
     os.makedirs(DOCS_DIR, exist_ok=True)
