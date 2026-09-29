@@ -426,10 +426,12 @@ DISTRIBUTION_DAYS_AHEAD = 7
 DISTRIBUTION_HEIGHT_PX = 200
 
 
-def build_distribution(showtimes, movies, today):
+def build_distribution(showtimes, movies, today, seats=None):
     """
     One stacked bar per day. Bar height = number of showtimes that day,
     split into one colored segment per film.
+    If `seats` (screen_name -> seat count) is given, each showtime counts as
+    its screen's seats instead of 1, so bars show seats offered per day.
     """
     titles = {movie["movie_id"]: movie["title"] for movie in movies}
 
@@ -437,12 +439,13 @@ def build_distribution(showtimes, movies, today):
     days = [(today_date + datetime.timedelta(days=d)).isoformat()
             for d in range(-DISTRIBUTION_DAYS_BACK, DISTRIBUTION_DAYS_AHEAD + 1)]
 
-    # counts[day][movie_id] = number of showtimes
+    # counts[day][movie_id] = number of showtimes (or seats offered, if seats given)
     counts = {day: {} for day in days}
     for r in showtimes:
         day = r["starts_at"][:10]
         if day in counts:
-            counts[day][r["movie_id"]] = counts[day].get(r["movie_id"], 0) + 1
+            amount = 1 if seats is None else seats.get(r["screen_name"], 0)
+            counts[day][r["movie_id"]] = counts[day].get(r["movie_id"], 0) + amount
 
     # Colors go only to films in this chart, in the order the recorder first saw them
     # (their row order in movies.csv). Colors only repeat past 10 films in 15 days.
@@ -490,8 +493,13 @@ def build_distribution(showtimes, movies, today):
         legend.append('<span class="swatch" style="background: %s;"></span> %s (%d)'
                       % (background, html.escape(titles.get(movie_id, movie_id)), totals[movie_id]))
     out.append('<div class="legend">%s</div>' % "<br>".join(legend))
-    out.append('<div class="legend">Number in each color = showtimes that day. Past days only go back to when '
-               'recording began; future days only show what Landmark has posted so far.</div>')
+    if seats is None:
+        meaning = "Number in each color = showtimes that day."
+    else:
+        meaning = ("Number in each color = seats offered that day (each showtime counts as the "
+                   "number of seats in its screen). Legend totals are seats.")
+    out.append('<div class="legend">%s Past days only go back to when recording began; '
+               'future days only show what Landmark has posted so far.</div>' % meaning)
     return "\n".join(out)
 
 
@@ -560,6 +568,7 @@ def build_page(now_utc, tz):
 
     timeline = build_timeline(today_rows, titles, runtimes, seats, now_local)
     distribution = build_distribution(showtimes, movies, today)
+    seat_distribution = build_distribution(showtimes, movies, today, seats)
 
     page = """<!DOCTYPE html>
 <html><head><meta charset="utf-8">
@@ -628,6 +637,8 @@ Box height = ads + runtime. "Out" = credits start, when people leave. Red gap = 
 %s
 <h2>Film distribution: showtimes per day</h2>
 %s
+<h2>Film distribution: seats offered per day</h2>
+%s
 </div>
 <div class="right">
 <h2>Recorder health</h2>
@@ -642,7 +653,7 @@ Box height = ads + runtime. "Out" = credits start, when people leave. Red gap = 
 </div>
 </div>
 </body></html>
-""" % (html.escape(nice_day(today)), AD_MINUTES, CREDITS_MINUTES, timeline, distribution,
+""" % (html.escape(nice_day(today)), AD_MINUTES, CREDITS_MINUTES, timeline, distribution, seat_distribution,
        "\n".join(health), today_total, today_table, week_table, upcoming_table)
 
     os.makedirs(DOCS_DIR, exist_ok=True)
