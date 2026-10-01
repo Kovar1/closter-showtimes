@@ -517,12 +517,14 @@ def smooth_line(points):
     return " ".join(parts)
 
 
-def build_share_flow(showtimes, movies, today, seats):
+def build_share_flow(showtimes, movies, today, seats, absolute=False):
     """
     Smooth 100% stacked area chart, drawn as inline SVG (no JavaScript).
     Each day the full height = 100% of that day's seats; each film's band
     is its share of them. Bands keep the same order every day (biggest over
     the whole window on top) so they can connect from day to day.
+    If `absolute` is True, bands are drawn in seats instead: the busiest day
+    fills the full height and lighter days are shorter, on a common baseline.
     """
     titles = {movie["movie_id"]: movie["title"] for movie in movies}
 
@@ -560,16 +562,20 @@ def build_share_flow(showtimes, movies, today, seats):
     xs = [FLOW_LEFT + i * plot_width / (len(days) - 1) for i in range(len(days))]
 
     # For each film and day: the y of the top and bottom of its band.
+    # pixels_per_seat makes each day fill the height (share), or makes the busiest day fill it (absolute).
+    busiest_day = float(max(sum(counts[day].values()) for day in days))
     tops = {movie_id: [] for movie_id in order}
     bottoms = {movie_id: [] for movie_id in order}
+    stack_tops = []
     for day in days:
         day_total = float(sum(counts[day].values()))
-        used = 0.0
+        pixels_per_seat = plot_height / (busiest_day if absolute else day_total)
+        y = FLOW_TOP + plot_height - day_total * pixels_per_seat   # top of this day's stack
+        stack_tops.append(y)
         for movie_id in order:
-            share = counts[day].get(movie_id, 0) / day_total
-            tops[movie_id].append(FLOW_TOP + used * plot_height)
-            used += share
-            bottoms[movie_id].append(FLOW_TOP + used * plot_height)
+            tops[movie_id].append(y)
+            y += counts[day].get(movie_id, 0) * pixels_per_seat
+            bottoms[movie_id].append(y)
 
     out = ['<div style="overflow-x: auto;">',
            '<svg viewBox="0 0 %d %d" width="100%%" style="min-width: 700px; max-width: 1100px; display: block;" '
@@ -593,10 +599,13 @@ def build_share_flow(showtimes, movies, today, seats):
             thickness = bottoms[movie_id][i] - tops[movie_id][i]
             if thickness < 15:
                 continue
-            share = counts[day].get(movie_id, 0) / float(sum(counts[day].values()))
+            if absolute:
+                label = "%d" % counts[day].get(movie_id, 0)
+            else:
+                label = "%d%%" % round(100.0 * counts[day].get(movie_id, 0) / sum(counts[day].values()))
             anchor = "start" if i == 0 else ("end" if i == len(days) - 1 else "middle")
-            out.append('<text x="%.1f" y="%.1f" font-size="12" fill="%s" text-anchor="%s" dominant-baseline="middle">%d%%</text>'
-                       % (xs[i], (tops[movie_id][i] + bottoms[movie_id][i]) / 2, text, anchor, round(100 * share)))
+            out.append('<text x="%.1f" y="%.1f" font-size="12" fill="%s" text-anchor="%s" dominant-baseline="middle">%s</text>'
+                       % (xs[i], (tops[movie_id][i] + bottoms[movie_id][i]) / 2, text, anchor, label))
 
     # Day labels underneath, total seats above, and a line at today.
     for i, day in enumerate(days):
@@ -608,7 +617,7 @@ def build_share_flow(showtimes, movies, today, seats):
         out.append('<text x="%.1f" y="%.1f" font-size="12" fill="#444" text-anchor="%s">%s</text>'
                    % (xs[i], bottom + 28, anchor, day_number))
         out.append('<text x="%.1f" y="%.1f" font-size="11" fill="#888" text-anchor="%s">%d</text>'
-                   % (xs[i], FLOW_TOP - 6, anchor, sum(counts[day].values())))
+                   % (xs[i], stack_tops[i] - 6, anchor, sum(counts[day].values())))
         if day == today:
             out.append('<line x1="%.1f" y1="%d" x2="%.1f" y2="%d" stroke="#000" stroke-width="1.5" stroke-dasharray="3,2"/>'
                        % (xs[i], FLOW_TOP, xs[i], FLOW_HEIGHT - FLOW_BOTTOM))
@@ -618,10 +627,19 @@ def build_share_flow(showtimes, movies, today, seats):
     legend = []
     for movie_id in order:
         background, text = colors.get(movie_id, ("#ccc", "#000"))
-        legend.append('<span class="swatch" style="background: %s;"></span> %s (%d%%)'
-                      % (background, html.escape(titles.get(movie_id, movie_id)), round(100 * totals[movie_id] / grand_total)))
+        if absolute:
+            amount = "%d seats" % totals[movie_id]
+        else:
+            amount = "%d%%" % round(100 * totals[movie_id] / grand_total)
+        legend.append('<span class="swatch" style="background: %s;"></span> %s (%s)'
+                      % (background, html.escape(titles.get(movie_id, movie_id)), amount))
     out.append('<div class="legend">%s</div>' % "<br>".join(legend))
-    out.append('<div class="legend">Full height each day = 100% of that day\'s seats; each band = that film\'s share. '
+    if absolute:
+        meaning = ('Height = seats offered: the busiest day fills the chart, lighter days are shorter. '
+                   'Each band = that film\'s seats that day (number inside). ')
+    else:
+        meaning = 'Full height each day = 100% of that day\'s seats; each band = that film\'s share. '
+    out.append('<div class="legend">' + meaning +
                'Bands stay in the same order every day (biggest overall on top) so they can flow from day to day. '
                'Number above each day = total seats offered. Dashed line = today. Days with nothing recorded or '
                'posted yet are left out.</div>')
@@ -693,7 +711,7 @@ def build_page(now_utc, tz):
 
     timeline = build_timeline(today_rows, titles, runtimes, seats, now_local)
     distribution = build_share_flow(showtimes, movies, today, seats)
-    seat_distribution = build_distribution(showtimes, movies, today, seats)
+    seat_distribution = build_share_flow(showtimes, movies, today, seats, absolute=True)
 
     page = """<!DOCTYPE html>
 <html><head><meta charset="utf-8">
@@ -760,8 +778,6 @@ th { background: #eee; }
 Box height = ads + runtime. "Out" = credits start, when people leave. Red gap = under 15 minutes to turn the room over.
 </div>
 %s
-<h2>Film distribution: seats offered per day</h2>
-%s
 </div>
 <div class="right">
 <h2>Recorder health</h2>
@@ -775,11 +791,14 @@ Box height = ads + runtime. "Out" = credits start, when people leave. Red gap = 
 <p>~People = %% sold x seats in that screen. Data: landmarktheatres.com, recorded every ~15 minutes.</p>
 </div>
 </div>
+<h2>Film distribution: seats offered per day</h2>
+%s
 <h2>Film distribution: share of each day's seats</h2>
 %s
 </body></html>
-""" % (html.escape(nice_day(today)), AD_MINUTES, CREDITS_MINUTES, timeline, seat_distribution,
-       "\n".join(health), today_total, today_table, week_table, upcoming_table, distribution)
+""" % (html.escape(nice_day(today)), AD_MINUTES, CREDITS_MINUTES, timeline,
+       "\n".join(health), today_total, today_table, week_table, upcoming_table,
+       seat_distribution, distribution)
 
     os.makedirs(DOCS_DIR, exist_ok=True)
     with open(os.path.join(DOCS_DIR, "index.html"), "w", encoding="utf-8") as f:
