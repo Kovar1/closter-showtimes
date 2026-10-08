@@ -793,3 +793,4 @@ polled_at_utc,ok,error,showtimes_seen,snapshots_written
 2026-10-08 22:00:21,1,weather: 503 Server Error: Service Unavailable for url: https://api.open-meteo.com/v1/forecast?latitude=40.9706&longitude=-73.9586&current=temperature_2m%2Cprecipitation%2Ccloud_cover%2Cweather_code&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=America%2FNew_York,160,1
 2026-10-08 22:15:22,1,,160,0
 2026-10-08 22:22:43,1,,160,1
+2026-10-08 22:30:17,1,,160,0
