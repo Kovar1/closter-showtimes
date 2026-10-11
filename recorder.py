@@ -517,7 +517,15 @@ def smooth_line(points):
     return " ".join(parts)
 
 
-def build_share_flow(showtimes, movies, today, seats, absolute=False):
+def band_path(top_points, bottom_points):
+    """Closed SVG shape: along the top edge left to right, then back along the bottom edge."""
+    bottom_points = bottom_points[::-1]
+    return ("M %.1f,%.1f %s L %.1f,%.1f %s Z"
+            % (top_points[0][0], top_points[0][1], smooth_line(top_points),
+               bottom_points[0][0], bottom_points[0][1], smooth_line(bottom_points)))
+
+
+def build_share_flow(showtimes, movies, today, seats, absolute=False, show_sold=False):
     """
     Smooth 100% stacked area chart, drawn as inline SVG (no JavaScript).
     Each day the full height = 100% of that day's seats; each film's band
@@ -525,6 +533,8 @@ def build_share_flow(showtimes, movies, today, seats, absolute=False):
     the whole window on top) so they can connect from day to day.
     If `absolute` is True, bands are drawn in seats instead: the busiest day
     fills the full height and lighter days are shorter, on a common baseline.
+    If `show_sold` is True, each band is faded, with a solid part at its
+    bottom for the seats sold (same scale as the band).
     """
     titles = {movie["movie_id"]: movie["title"] for movie in movies}
 
@@ -538,6 +548,15 @@ def build_share_flow(showtimes, movies, today, seats, absolute=False):
         day = r["starts_at"][:10]
         if day in counts:
             counts[day][r["movie_id"]] = counts[day].get(r["movie_id"], 0) + seats.get(r["screen_name"], 0)
+
+    # sold[day][movie_id] = seats sold (latest % sold x screen seats). Final for past days,
+    # sold so far for today and future days.
+    sold = {day: {} for day in window}
+    for r in showtimes:
+        day = r["starts_at"][:10]
+        if day in sold and r["last_pct"] != "":
+            seats_sold = int(r["last_pct"]) * seats.get(r["screen_name"], 0) / 100.0
+            sold[day][r["movie_id"]] = sold[day].get(r["movie_id"], 0) + seats_sold
 
     # Same color rule as build_distribution, so both charts match.
     in_chart = set(movie_id for c in counts.values() for movie_id in c)
@@ -567,9 +586,11 @@ def build_share_flow(showtimes, movies, today, seats, absolute=False):
     tops = {movie_id: [] for movie_id in order}
     bottoms = {movie_id: [] for movie_id in order}
     stack_tops = []
+    scales = []   # pixels_per_seat for each day
     for day in days:
         day_total = float(sum(counts[day].values()))
         pixels_per_seat = plot_height / (busiest_day if absolute else day_total)
+        scales.append(pixels_per_seat)
         y = FLOW_TOP + plot_height - day_total * pixels_per_seat   # top of this day's stack
         stack_tops.append(y)
         for movie_id in order:
@@ -581,31 +602,51 @@ def build_share_flow(showtimes, movies, today, seats, absolute=False):
            '<svg viewBox="0 0 %d %d" width="100%%" style="min-width: 700px; max-width: 1100px; display: block;" '
            'font-family="sans-serif">' % (FLOW_WIDTH, FLOW_HEIGHT)]
 
-    # One filled shape per film: along its top edge left to right, back along its bottom edge.
+    # 1. One filled shape per film (faded when showing sold seats, so the sold part stands out).
+    band_opacity = 0.35 if show_sold else 1
     for movie_id in order:
         background, text = colors.get(movie_id, ("#ccc", "#000"))
-        top_points = list(zip(xs, tops[movie_id]))
-        bottom_points = list(zip(xs, bottoms[movie_id]))[::-1]
-        path = ("M %.1f,%.1f %s L %.1f,%.1f %s Z"
-                % (top_points[0][0], top_points[0][1], smooth_line(top_points),
-                   bottom_points[0][0], bottom_points[0][1], smooth_line(bottom_points)))
-        out.append('<path d="%s" fill="%s" stroke="#fff" stroke-width="0.6"><title>%s</title></path>'
-                   % (path, background, html.escape(titles.get(movie_id, movie_id))))
+        path = band_path(list(zip(xs, tops[movie_id])), list(zip(xs, bottoms[movie_id])))
+        out.append('<path d="%s" fill="%s" fill-opacity="%s"><title>%s</title></path>'
+                   % (path, background, band_opacity, html.escape(titles.get(movie_id, movie_id))))
 
-    # Percent labels where a band is thick enough to hold one.
+    # 2. Solid part at the bottom of each band = seats sold.
+    if show_sold:
+        for movie_id in order:
+            background, text = colors.get(movie_id, ("#ccc", "#000"))
+            sold_tops = []
+            for i, day in enumerate(days):
+                seats_sold = min(sold[day].get(movie_id, 0), counts[day].get(movie_id, 0))
+                sold_tops.append(bottoms[movie_id][i] - seats_sold * scales[i])
+            path = band_path(list(zip(xs, sold_tops)), list(zip(xs, bottoms[movie_id])))
+            out.append('<path d="%s" fill="%s"><title>%s: seats sold</title></path>'
+                       % (path, background, html.escape(titles.get(movie_id, movie_id))))
+
+    # 3. Thin white outlines between films, drawn last so they stay visible.
+    for movie_id in order:
+        path = band_path(list(zip(xs, tops[movie_id])), list(zip(xs, bottoms[movie_id])))
+        out.append('<path d="%s" fill="none" stroke="#fff" stroke-width="0.6"/>' % path)
+
+    # Labels where a band is thick enough to hold one: seats offered (absolute) or % share.
     for movie_id in order:
         background, text = colors.get(movie_id, ("#ccc", "#000"))
         for i, day in enumerate(days):
             thickness = bottoms[movie_id][i] - tops[movie_id][i]
             if thickness < 15:
                 continue
+            anchor = "start" if i == 0 else ("end" if i == len(days) - 1 else "middle")
+            y = (tops[movie_id][i] + bottoms[movie_id][i]) / 2
             if absolute:
                 label = "%d" % counts[day].get(movie_id, 0)
             else:
                 label = "%d%%" % round(100.0 * counts[day].get(movie_id, 0) / sum(counts[day].values()))
-            anchor = "start" if i == 0 else ("end" if i == len(days) - 1 else "middle")
-            out.append('<text x="%.1f" y="%.1f" font-size="12" fill="%s" text-anchor="%s" dominant-baseline="middle">%s</text>'
-                       % (xs[i], (tops[movie_id][i] + bottoms[movie_id][i]) / 2, text, anchor, label))
+            if show_sold:
+                # Black text with a white halo, readable on both the faded and solid parts.
+                style = 'fill="#000" stroke="#fff" stroke-width="3" paint-order="stroke"'
+            else:
+                style = 'fill="%s"' % text
+            out.append('<text x="%.1f" y="%.1f" font-size="12" %s text-anchor="%s" dominant-baseline="middle">%s</text>'
+                       % (xs[i], y, style, anchor, label))
 
     # Day labels underneath, total seats above, and a line at today.
     for i, day in enumerate(days):
@@ -616,8 +657,12 @@ def build_share_flow(showtimes, movies, today, seats, absolute=False):
                    % (xs[i], bottom + 14, anchor, weekday))
         out.append('<text x="%.1f" y="%.1f" font-size="12" fill="#444" text-anchor="%s">%s</text>'
                    % (xs[i], bottom + 28, anchor, day_number))
-        out.append('<text x="%.1f" y="%.1f" font-size="11" fill="#888" text-anchor="%s">%d</text>'
-                   % (xs[i], stack_tops[i] - 6, anchor, sum(counts[day].values())))
+        if show_sold:
+            day_label = "%d/%d" % (round(sum(sold[day].values())), sum(counts[day].values()))
+        else:
+            day_label = "%d" % sum(counts[day].values())
+        out.append('<text x="%.1f" y="%.1f" font-size="11" fill="#888" text-anchor="%s">%s</text>'
+                   % (xs[i], stack_tops[i] - 6, anchor, day_label))
         if day == today:
             out.append('<line x1="%.1f" y1="%d" x2="%.1f" y2="%d" stroke="#000" stroke-width="1.5" stroke-dasharray="3,2"/>'
                        % (xs[i], FLOW_TOP, xs[i], FLOW_HEIGHT - FLOW_BOTTOM))
@@ -631,6 +676,8 @@ def build_share_flow(showtimes, movies, today, seats, absolute=False):
             amount = "%d seats" % totals[movie_id]
         else:
             amount = "%d%%" % round(100 * totals[movie_id] / grand_total)
+        if show_sold:
+            amount += ", %d sold" % round(sum(sold[day].get(movie_id, 0) for day in days))
         legend.append('<span class="swatch" style="background: %s;"></span> %s (%s)'
                       % (background, html.escape(titles.get(movie_id, movie_id)), amount))
     out.append('<div class="legend">%s</div>' % "<br>".join(legend))
@@ -639,78 +686,15 @@ def build_share_flow(showtimes, movies, today, seats, absolute=False):
                    'Each band = that film\'s seats that day (number inside). ')
     else:
         meaning = 'Full height each day = 100% of that day\'s seats; each band = that film\'s share. '
+    if show_sold:
+        meaning += ('Solid = seats sold, faded = seats not sold (for today and future days: not sold yet). '
+                    'Number above each day = seats sold / seats offered. ')
+    else:
+        meaning += 'Number above each day = total seats offered. '
     out.append('<div class="legend">' + meaning +
                'Bands stay in the same order every day (biggest overall on top) so they can flow from day to day. '
-               'Number above each day = total seats offered. Dashed line = today. Days with nothing recorded or '
-               'posted yet are left out.</div>')
+               'Dashed line = today. Days with nothing recorded or posted yet are left out.</div>')
     return "\n".join(out)
-
-
-FILM_SUMMARY_LIMIT = 20   # most recently played films first
-
-
-def build_film_summary(showtimes, titles, runtimes, seats, now_local):
-    """
-    One row per film that has at least one finished screening before today:
-    average % full, how long it has played (first to last screening), and
-    seats sold. Today and the future are left out.
-
-    A screening counts once it is on an earlier day and start + ads + runtime
-    has passed (a late show can run past midnight). Its attendance is last_pct,
-    the last reading the recorder saw (checked: for every show so far this
-    equals the last reading before the show ended).
-    """
-    now_naive = now_local.replace(tzinfo=None)
-    today = now_naive.date()
-
-    # The day recording began. Films already playing then started earlier than we can see.
-    first_seen = min(r["first_seen_utc"] for r in showtimes)
-    recording_began = to_local(first_seen, now_local.tzinfo).date()
-
-    films = {}
-    for r in showtimes:
-        if r["last_pct"] == "":
-            continue
-        start = datetime.datetime.strptime(r["starts_at"], "%Y-%m-%d %H:%M")
-        runtime = runtimes.get(r["movie_id"], DEFAULT_RUNTIME)
-        if start.date() >= today:
-            continue  # today and the future are left out
-        if start + datetime.timedelta(minutes=AD_MINUTES + runtime) > now_naive:
-            continue  # last night's late show still running
-        film = films.setdefault(r["movie_id"], {"shows": 0, "pct_total": 0, "seats_sold": 0,
-                                                "unknown_screen": 0, "first": start.date(), "last": start.date()})
-        pct = int(r["last_pct"])
-        film["shows"] += 1
-        film["pct_total"] += pct
-        if r["screen_name"] in seats:
-            film["seats_sold"] += round(pct * seats[r["screen_name"]] / 100)
-        else:
-            film["unknown_screen"] += 1
-        film["first"] = min(film["first"], start.date())
-        film["last"] = max(film["last"], start.date())
-
-    # Most recently played first (ties: more seats sold first), then keep the top 20.
-    recent_first = sorted(films.items(), key=lambda item: (item[1]["last"], item[1]["seats_sold"]), reverse=True)
-    rows = []
-    for movie_id, film in recent_first[:FILM_SUMMARY_LIMIT]:
-        days = (film["last"] - film["first"]).days + 1
-        more = "+" if film["first"] <= recording_began else ""
-        dates = nice_day(film["first"].isoformat())
-        if film["last"] != film["first"]:
-            dates += " to " + nice_day(film["last"].isoformat())
-        seats_text = "%d%s" % (film["seats_sold"], more)
-        if film["unknown_screen"]:
-            seats_text += " (%d shows in unknown screens)" % film["unknown_screen"]
-        rows.append([titles.get(movie_id, movie_id), film["shows"], dates, "%d%s" % (days, more),
-                     "%d%%" % round(film["pct_total"] / float(film["shows"])), seats_text])
-
-    if not rows:
-        return "<p>No finished screenings yet.</p>"
-    return (table(["Movie", "Screenings", "Played", "Days", "Avg % full", "Seats sold"], rows) +
-            "<p class='legend'>Screenings before today only. Most recently played first, up to %d films. "
-            "Avg %% full = average of each screening's final %% sold. Days = first to last screening. "
-            "+ = was already playing when recording began (%s), so the real run and total are larger.</p>"
-            % (FILM_SUMMARY_LIMIT, nice_day(recording_began.isoformat())))
 
 
 def build_page(now_utc, tz):
@@ -776,10 +760,9 @@ def build_page(now_utc, tz):
     upcoming = sorted((day, titles.get(mid, mid)) for mid, day in first_day.items() if day > today)
     upcoming_table = table(["First show", "Movie"], [[nice_day(day), title] for day, title in upcoming])
 
-    film_summary = build_film_summary(showtimes, titles, runtimes, seats, now_local)
 
     timeline = build_timeline(today_rows, titles, runtimes, seats, now_local)
-    distribution = build_share_flow(showtimes, movies, today, seats)
+    distribution = build_share_flow(showtimes, movies, today, seats, show_sold=True)
     seat_distribution = build_share_flow(showtimes, movies, today, seats, absolute=True)
 
     page = """<!DOCTYPE html>
@@ -857,8 +840,6 @@ Box height = ads + runtime. "Out" = credits start, when people leave. Red gap = 
 %s
 <h2>Coming up: first showtimes of new movies</h2>
 %s
-<h2>Films so far</h2>
-%s
 <p>~People = %% sold x seats in that screen. Data: landmarktheatres.com, recorded every ~15 minutes.</p>
 </div>
 </div>
@@ -868,7 +849,7 @@ Box height = ads + runtime. "Out" = credits start, when people leave. Red gap = 
 %s
 </body></html>
 """ % (html.escape(nice_day(today)), AD_MINUTES, CREDITS_MINUTES, timeline,
-       "\n".join(health), today_total, today_table, week_table, upcoming_table, film_summary,
+       "\n".join(health), today_total, today_table, week_table, upcoming_table,
        seat_distribution, distribution)
 
     os.makedirs(DOCS_DIR, exist_ok=True)
