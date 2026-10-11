@@ -295,11 +295,12 @@ DEFAULT_RUNTIME = 120     # used when a movie's runtime is unknown
 HEADER_PX = 34            # room for screen names above the chart
 
 
-def build_timeline(rows, titles, runtimes, seats, now_local):
+def build_timeline(rows, titles, runtimes, seats, now_local, private=()):
     """
     One column per screen. Each show is a box: top = start time,
     height = ads + runtime. The shaded part of the box grows left to right
-    with the percent of seats sold.
+    with the percent of seats sold. Showtime keys in `private` are drawn as
+    gray PRIVATE boxes (the room is in use, but it isn't box office).
     """
     if not rows:
         return "<p>No shows today.</p>"
@@ -366,14 +367,21 @@ def build_timeline(rows, titles, runtimes, seats, now_local):
                 count = "%d%%" % pct
 
             classes = ["show"]
-            if pct == 0:
+            if r["showtime_key"] in private:
+                classes.append("private")
+            elif pct == 0:
                 classes.append("empty")
-            if pct >= 100:
+            elif pct >= 100:
                 classes.append("soldout")
             if s["end"] <= now_local.replace(tzinfo=None):
                 classes.append("done")
 
-            status = "SOLD OUT" if pct >= 100 else count
+            if r["showtime_key"] in private:
+                status = "PRIVATE"
+            elif pct >= 100:
+                status = "SOLD OUT"
+            else:
+                status = count
             ends = s["end"].strftime("%I:%M").lstrip("0")
             credits_start = s["end"] - datetime.timedelta(minutes=CREDITS_MINUTES)
             out_time = credits_start.strftime("%I:%M").lstrip("0")
@@ -675,9 +683,10 @@ def build_share_flow(showtimes, movies, today, seats, absolute=False, show_sold=
         if absolute:
             amount = "%d seats" % totals[movie_id]
         else:
-            amount = "%d%%" % round(100 * totals[movie_id] / grand_total)
+            amount = "%d%% of seats offered" % round(100 * totals[movie_id] / grand_total)
         if show_sold:
-            amount += ", %d sold" % round(sum(sold[day].get(movie_id, 0) for day in days))
+            film_sold = sum(sold[day].get(movie_id, 0) for day in days)
+            amount += ", %d%% full" % round(100.0 * film_sold / totals[movie_id])
         legend.append('<span class="swatch" style="background: %s;"></span> %s (%s)'
                       % (background, html.escape(titles.get(movie_id, movie_id)), amount))
     out.append('<div class="legend">%s</div>' % "<br>".join(legend))
@@ -697,6 +706,68 @@ def build_share_flow(showtimes, movies, today, seats, absolute=False, show_sold=
     return "\n".join(out)
 
 
+def find_private_screenings(showtimes, tz):
+    """
+    Showtime keys that look like private rentals or blocked (closed) shows
+    rather than public ticket sales. Each showtime's sales history is checked
+    for 4 warning signs; 2 or more = private.
+
+      1. Big jump:        half the room or more filled in one 15-minute step, and it
+                          stayed 45+ minutes (an abandoned checkout hold clears in minutes)
+      2. Full early:      90%+ full a day or more before showtime
+      3. Full on arrival: already 90%+ the first time the recorder saw it
+      4. Lonely:          none of the same film's other shows that day is at 50%+
+
+    The data files are not changed; this is re-checked every time the page is built.
+    """
+    # Sales history: showtime_key -> [(polled_at_utc, pct), ...], oldest first.
+    history = {}
+    folder = os.path.join(DATA_DIR, "snapshots")
+    if os.path.isdir(folder):
+        for name in sorted(os.listdir(folder)):   # monthly files, so name order = time order
+            for row in read_csv(os.path.join(folder, name)):
+                history.setdefault(row["showtime_key"], []).append((row["polled_at_utc"], int(row["occupancy_pct"])))
+
+    # The same film's showtimes on the same day, for the "lonely" check.
+    film_day = {}
+    for r in showtimes:
+        film_day.setdefault((r["movie_id"], r["starts_at"][:10]), []).append(r)
+
+    private = set()
+    for r in showtimes:
+        readings = history.get(r["showtime_key"])
+        if not readings:
+            continue
+
+        big_jump = False
+        previous = 0   # the first reading counts as a jump from 0
+        for i, (polled_at, pct) in enumerate(readings):
+            if pct - previous >= 50:
+                if i + 1 == len(readings):
+                    big_jump = True   # it never changed again
+                else:
+                    jumped = datetime.datetime.strptime(polled_at, "%Y-%m-%d %H:%M:%S")
+                    changed = datetime.datetime.strptime(readings[i + 1][0], "%Y-%m-%d %H:%M:%S")
+                    if (changed - jumped).total_seconds() >= 45 * 60:
+                        big_jump = True
+            previous = pct
+
+        start = datetime.datetime.strptime(r["starts_at"], "%Y-%m-%d %H:%M").replace(tzinfo=tz)
+        day_before = (start - datetime.timedelta(hours=24)).astimezone(datetime.timezone.utc)
+        day_before_text = day_before.strftime("%Y-%m-%d %H:%M:%S")   # same format as polled_at_utc
+        full_early = any(pct >= 90 and polled_at <= day_before_text for polled_at, pct in readings)
+
+        full_on_arrival = readings[0][1] >= 90
+
+        others = [o for o in film_day[(r["movie_id"], r["starts_at"][:10])] if o is not r]
+        lonely = not any(o["last_pct"] != "" and int(o["last_pct"]) >= 50 for o in others)
+
+        signs = [big_jump, full_early, full_on_arrival, lonely].count(True)
+        if signs >= 2:
+            private.add(r["showtime_key"])
+    return private
+
+
 def build_page(now_utc, tz):
     now_local = now_utc.astimezone(tz)
     today = now_local.strftime("%Y-%m-%d")
@@ -707,6 +778,12 @@ def build_page(now_utc, tz):
     titles = {r["movie_id"]: r["title"] for r in movies}
     runtimes = {r["movie_id"]: int(r["runtime_minutes"]) for r in movies if r["runtime_minutes"].isdigit()}
     seats ={r["screen_name"]: int(r["seats"]) for r in read_csv(os.path.join(DATA_DIR, "screens.csv"))}
+
+    # Private rentals and blocked shows aren't box office. They stay on today's timeline
+    # (marked PRIVATE, since the room is in use) and are left out of everything else.
+    private = find_private_screenings(showtimes, tz)
+    timeline_rows = sorted([r for r in showtimes if r["starts_at"][:10] == today], key=lambda r: r["starts_at"])
+    showtimes = [r for r in showtimes if r["showtime_key"] not in private]
 
     def people(row):
         if row["last_pct"] == "" or row["screen_name"] not in seats:
@@ -761,7 +838,7 @@ def build_page(now_utc, tz):
     upcoming_table = table(["First show", "Movie"], [[nice_day(day), title] for day, title in upcoming])
 
 
-    timeline = build_timeline(today_rows, titles, runtimes, seats, now_local)
+    timeline = build_timeline(timeline_rows, titles, runtimes, seats, now_local, private)
     distribution = build_share_flow(showtimes, movies, today, seats, show_sold=True)
     seat_distribution = build_share_flow(showtimes, movies, today, seats, absolute=True)
 
@@ -799,6 +876,9 @@ th { background: #eee; }
 .show.soldout .fill { background: #5b7bd0; }
 .show.soldout .count { color: #1a2f6b; letter-spacing: 1px; }
 .show.done { opacity: 0.45; }
+.show.private { background: #e4e4e4; border: 1px solid #999; }
+.show.private .fill { display: none; }
+.show.private .count { color: #555; font-size: 11px; }
 .gap { position: absolute; text-align: center; color: #666; font-size: 10px; }
 .gap.tight { color: #b00; font-weight: bold; }
 .nowline { position: absolute; left: 40px; right: 0; border-top: 2px solid #000; z-index: 5; }
@@ -826,6 +906,7 @@ th { background: #eee; }
 <span class="swatch" style="background: linear-gradient(90deg, #8fa8e0 40%%, #fff 40%%);"></span> shaded width = seats sold &nbsp;
 <span class="swatch" style="border: 1px dashed #888;"></span> nothing sold &nbsp;
 <span class="swatch" style="border: 3px solid #1a2f6b; background: #5b7bd0;"></span> sold out &nbsp;
+<span class="swatch" style="background: #e4e4e4; border: 1px solid #999;"></span> private, not counted &nbsp;
 <span class="swatch" style="background: repeating-linear-gradient(-45deg, rgba(0,0,0,0.22) 0 3px, #fff 3px 6px);"></span> ~%d min credits<br>
 Box height = ads + runtime. "Out" = credits start, when people leave. Red gap = under 15 minutes to turn the room over.
 </div>
