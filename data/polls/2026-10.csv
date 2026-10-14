@@ -1305,3 +1305,4 @@ polled_at_utc,ok,error,showtimes_seen,snapshots_written
 2026-10-14 00:30:23,1,,187,0
 2026-10-14 00:45:14,1,,187,0
 2026-10-14 01:00:20,1,weather: Expecting value: line 1 column 1 (char 0),187,0
+2026-10-14 01:05:03,1,,187,0
