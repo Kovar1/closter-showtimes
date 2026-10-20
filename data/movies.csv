@@ -18,3 +18,5 @@ movie_id,title,runtime_minutes,rating,genres,release_date,studio,first_seen_utc
 1000023068,Other Mommy,94,R,Horror,2026-10-09,Universal Pictures,2026-10-06 02:15:14
 314939,Street Fighter,120,PG-13,"Action, Martial arts",2026-10-16,Paramount Pictures,2026-10-06 18:30:19
 318791,Whalefall,106,PG-13,Thriller,2026-10-16,20th Century Studios,2026-10-13 21:58:49
+204864,The Cat in the Hat,114,PG,"Animation, Adventure, Comedy",2026-11-06,Warner Bros.,2026-10-20 18:30:23
+312529,Disney's Hexed,109,PG,"Animation, Family, Fantasy, Adventure, Comedy",2026-11-25,Walt Disney Pictures,2026-10-20 18:30:23
