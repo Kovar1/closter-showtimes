@@ -947,3 +947,4 @@ polled_at_utc,ok,error,showtimes_seen,snapshots_written
 2026-11-10 12:30:19,1,,93,0
 2026-11-10 12:45:16,1,,93,1
 2026-11-10 13:00:21,1,"weather: HTTPSConnectionPool(host='api.open-meteo.com', port=443): Max retries exceeded with url: /v1/forecast?latitude=40.9706&longitude=-73.9586&current=temperature_2m%2Cprecipitation%2Ccloud_cover%2Cweather_code&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=America%2FNew_York (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1011)')))",93,0
+2026-11-10 13:16:10,1,,93,1
