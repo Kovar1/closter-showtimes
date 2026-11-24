@@ -2290,3 +2290,4 @@ polled_at_utc,ok,error,showtimes_seen,snapshots_written
 2026-11-24 01:30:30,1,,108,11
 2026-11-24 01:45:30,1,,119,37
 2026-11-24 02:00:31,1,"weather: HTTPSConnectionPool(host='api.open-meteo.com', port=443): Read timed out. (read timeout=30)",208,107
+2026-11-24 02:15:16,1,,208,4
